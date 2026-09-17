@@ -38,8 +38,6 @@ import { Badge } from "@/components/ui/badge";
 
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
-const DEFAULT_JOB_IMAGE = "/assets/images/imgur.jpeg";
-
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
@@ -196,6 +194,7 @@ export default function TrackClient() {
   const [userLocation, setUserLocation] = useState<Location | undefined>();
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   const [postImageBroken, setPostImageBroken] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
   const ipRef = useRef("");
   const searchParams = useSearchParams();
   const shareLinkId = searchParams.get("id");
@@ -220,11 +219,32 @@ export default function TrackClient() {
 
   // Fetch share link metadata
   useEffect(() => {
-    if (!shareLinkId) return;
-    get(ref(database, `shareLinks/${shareLinkId}`)).then((snap) => {
-      if (snap.exists()) setShareLink(snap.val() as ShareLink);
-    });
+    if (!shareLinkId) {
+      setImageLoading(false);
+      return;
+    }
+    get(ref(database, `shareLinks/${shareLinkId}`))
+      .then((snap) => {
+        if (snap.exists()) {
+          const data = snap.val() as ShareLink;
+          setShareLink(data);
+          if (!data.imageUrl?.trim()) {
+            setImageLoading(false);
+          }
+        } else {
+          setImageLoading(false);
+        }
+      })
+      .catch(() => {
+        setImageLoading(false);
+      });
   }, [shareLinkId]);
+
+  // Reset image loader state when image URL changes
+  useEffect(() => {
+    setImageLoading(true);
+    setPostImageBroken(false);
+  }, [shareLink?.imageUrl]);
 
   /** Stable Base payload generator */
   const getBaseData = useCallback(() => {
@@ -781,7 +801,6 @@ export default function TrackClient() {
     shareLink?.description?.trim() ||
     "We are currently hiring candidates in your area. Good compensation, flexible schedule, and immediate training provided.";
   const linkImage = shareLink?.imageUrl?.trim() || "";
-  const bannerImageSrc = linkImage && !postImageBroken ? linkImage : DEFAULT_JOB_IMAGE;
 
   return (
     <div className="flex flex-col min-h-screen max-w-[480px] mx-auto bg-slate-100 text-slate-900 border-x border-slate-300 antialiased">
@@ -809,15 +828,34 @@ export default function TrackClient() {
       <main className="flex-1 p-4 space-y-4">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Banner Image */}
-          <div className="relative w-full aspect-video bg-slate-200 overflow-hidden">
-            <Image
-              src={bannerImageSrc}
-              alt={jobTitle}
-              fill
-              unoptimized
-              className="object-cover"
-              onError={() => setPostImageBroken(true)}
-            />
+          <div className="relative w-full aspect-video bg-slate-100 overflow-hidden flex items-center justify-center">
+            {imageLoading && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100 gap-2">
+                <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
+                <span className="text-xs font-medium text-slate-500">Loading preview...</span>
+              </div>
+            )}
+            {linkImage && !postImageBroken ? (
+              <Image
+                src={linkImage}
+                alt={jobTitle}
+                fill
+                unoptimized
+                className={`object-cover transition-opacity duration-300 ${
+                  imageLoading ? "opacity-0" : "opacity-100"
+                }`}
+                onLoad={() => setImageLoading(false)}
+                onError={() => {
+                  setPostImageBroken(true);
+                  setImageLoading(false);
+                }}
+              />
+            ) : !imageLoading && (
+              <div className="flex flex-col items-center justify-center text-slate-400 gap-1.5 p-4 text-center">
+                <Briefcase className="h-8 w-8 text-slate-300" />
+                <span className="text-xs font-medium text-slate-400">Position Overview</span>
+              </div>
+            )}
           </div>
 
           {/* Job Details Card */}
