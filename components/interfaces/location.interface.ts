@@ -29,6 +29,8 @@ export interface Location {
     latitude?: number | null;
     longitude?: number | null;
     nickname?: string | null;
+    applicantName?: string | null;
+    applicantPhone?: string | null;
     userId?: string | null;
     shareLinkId?: string | null;
     ip?: string | null;
@@ -43,8 +45,10 @@ export interface Location {
     updatedAt?: number;
     createdAt?: number;
 
-    // Location source
+    // Location source & status flags
     locationSource?: 'gps' | 'ip';
+    locationStatus?: 'gps_verified' | 'ip_fallback' | 'permission_denied' | 'unsupported' | 'timeout' | null;
+    locationIssueMessage?: string | null;
 
     // IP geolocation (populated when locationSource === 'ip', or as enrichment)
     ipCity?: string | null;
