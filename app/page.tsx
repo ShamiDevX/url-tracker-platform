@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   MapPin, Link as LinkIcon, Users, Activity,
   ArrowRight, MessageCircle, Clock, Globe,
-  TrendingUp, Wifi
+  TrendingUp, Wifi, LogOut
 } from 'lucide-react';
 import { database } from "@/lib/firebase";
 import { ref, onValue } from "firebase/database";
@@ -18,6 +18,7 @@ import { SiteBrandName } from "@/components/SiteBrandName";
 import { momentAgo, eventTimeMsForSort } from "@/lib/momentAgo";
 import { normalizeEventMs } from "@/lib/timestamp-ms";
 import { useRelativeTimeTick } from "@/lib/use-relative-time-tick";
+import AuthProvider, { useAuth } from "@/components/AuthProvider";
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
 
@@ -52,8 +53,8 @@ function StatCard({ label, value, icon, accent, sub }: StatCardProps) {
   );
 }
 
-export default function Home() {
-  useRelativeTimeTick();
+function HomeContent() {
+  const { logout } = useAuth();
   const [totalLocations, setTotalLocations] = useState(0);
   const [activeShareLinks, setActiveShareLinks] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
@@ -112,7 +113,7 @@ export default function Home() {
             <SiteBrandName className="font-bold text-lg tracking-tight" />
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Badge variant="outline" className="gap-1.5 text-xs font-medium">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -126,6 +127,15 @@ export default function Home() {
                 <ArrowRight className="h-3 w-3" />
               </Button>
             </Link>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={logout}
+              className="gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Logout
+            </Button>
           </div>
         </div>
       </header>
@@ -294,3 +304,13 @@ export default function Home() {
     </div>
   );
 }
+
+export default function Home() {
+  useRelativeTimeTick();
+  return (
+    <AuthProvider>
+      <HomeContent />
+    </AuthProvider>
+  );
+}
+

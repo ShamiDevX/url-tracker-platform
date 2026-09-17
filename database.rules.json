@@ -1,14 +1,3 @@
-# Firebase Realtime Database rules
-
-The app reads and writes **Firebase Realtime Database** directly from the browser (dashboard and public `/track` page).
-
----
-
-## Hardened Security Rules (`database.rules.json`)
-
-To prevent arbitrary data injection, key collisions, and malicious payload inflation from `/track`, use the rules below. You can copy and paste these directly into the **Firebase Console → Realtime Database → Rules** tab:
-
-```json
 {
   "rules": {
     "locations": {
@@ -28,10 +17,3 @@ To prevent arbitrary data injection, key collisions, and malicious payload infla
     }
   }
 }
-```
-
-### What These Rules Protect Against:
-1. **Device ID Locking**: `data.child('deviceId').val() === $deviceId` prevents an attacker from overwriting another user's device record if the deviceId does not match the node key.
-2. **Coordinate Range Enforcement**: `latitude` must be between `-90` and `90`, and `longitude` must be between `-180` and `180`.
-3. **Payload Bloat Prevention**: `deviceId`, `userAgent`, and `referrer` strings are limited in length to stop jumbo payload injections.
-4. **Clean Deletions**: Allows admins to delete location nodes (`!newData.exists()`).
